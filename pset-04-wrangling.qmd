@@ -16,7 +16,7 @@ census_key <- "A_CENSUS_KEY_THAT_WORKS"
 Write a first line of code for your problem set that defines `census_key` by running the code in the file `census-key.R`.
 
 ```{r}
-## Your code here
+source("census-key.R")
 ```
 
 2. The [US Census API User Guide](https://www.census.gov/content/dam/Census/data/developers/api-user-guide/api-user-guide.pdf)
@@ -40,27 +40,29 @@ Hint: Print out `request` to check that the URL matches what we want.
 #| message: false
 #| warning: false
 library(httr2)
-#request <- 
+request <- request(url) |> req_url_query(get = "POP_2020,POP_2021,NAME", `for` = "state:*", key = census_key)
 ```
 
 3. Make a request to the US Census API using the `request` object. Save the response to and object named `response`. Check the response status of your request and make sure it was successful. You can learn about _status codes_ [here](https://en.wikipedia.org/wiki/List_of_HTTP_status_codes).
 
 
 ```{r}
-#response <- 
+response <- request |> req_perform()
+resp_status(response)
+resp_check_status(response)
 ```
 
 4. Use a function from the **httr2** package to determine the content type of your response.
 
 ```{r}
-# Your code here
+resp_content_type(response)
 ```
 
 5. Use just one line of code and one function to extract the data into a matrix. 
 Hints: 1) Use the `resp_body_json` function. 2) The first row of the matrix will be the variable names and this OK as we will fix in the next exercise.
 
 ```{r}
-#population <- 
+population <- resp_body_json(response, simplifyDataFrame = FALSE, simplifyMatrix = TRUE)
 ```
 
 6. Examine the `population` matrix you just created. Notice that 1) it is not tidy, 2) the column types are not what we want, and 3) the first row is a header. Convert `population` to a tidy dataset. Remove the state ID column and change the name of the column with state names to `state_name`. Add a column with state abbreviations called `state`. Make sure you assign the abbreviations for DC and PR correctly. Hint: Use the **janitor** package to make the first row the header. 
@@ -70,7 +72,8 @@ Hints: 1) Use the `resp_body_json` function. 2) The first row of the matrix will
 #| warning: false
 library(tidyverse)
 library(janitor)
-#population <- population |> ## Use janitor row to names function
+population_raw <- resp_body_json(response, simplifyVector = FALSE)
+population <- as.data.frame(do.call(rbind, population_raw), stringsAsFactors = FALSE) |> as_tibble() |> row_to_names(1) |> clean_names() |> select(-state) |> rename(state_name = name) |> pivot_longer(starts_with("pop_"), names_to = "year", values_to = "population") |> mutate(year = readr::parse_number(year), population = as.numeric(population)) |> mutate(state = case_when(state_name == "District of Columbia" ~ "DC", state_name == "Puerto Rico" ~ "PR", TRUE ~ state.abb[match(state_name, state.name)])) |> select(state, state_name, year, population)
   # convert to tibble
   # remove stat column
   # rename state column to state_name
@@ -84,12 +87,10 @@ library(janitor)
 7. As a check, make a barplot of states' 2021 and 2022 populations. Show the state names in the y-axis ordered by population size.  Hint: You will need to use `reorder` and use `facet_wrap`.
 
 ```{r}
-# population |> 
-  # reorder state
-  # assign aesthetic mapping
-  # use geom_col to plot barplot
-  # flip coordinates
-  # facet by year
+reorder_within <- function(x, by, within, fun = mean, sep = "___") stats::reorder(paste(x, within, sep = sep), by, fun)
+scale_y_reordered <- function(sep = "___") ggplot2::scale_y_discrete(labels = function(x) gsub(paste0(sep, ".*$"), "", x))
+population |> mutate(state_name = reorder_within(state_name, population, year)) |> ggplot(aes(x = population, y = state_name)) + geom_col() + coord_flip() + facet_wrap(~year, scales = "free_y") + scale_y_reordered()
+
 ```
 
 
@@ -107,14 +108,14 @@ points to a JSON file that lists the states in the 10 Public Health Service (PHS
 library(jsonlite)
 library(purrr)
 url <- "https://github.com/datasciencelabs/2025/raw/refs/heads/main/data/regions.json"
-# regions <- use jsonlit JSON parser 
-# regions <- convert list to data frame. You can use map_df in purrr package 
+regions_list <- jsonlite::read_json(url, simplifyVector = FALSE)
+regions <- purrr::map_df(regions_list, \(x) tibble(state_name = unlist(x$states), region = as.integer(x$region[[1]]), region_name = x$region_name)) |> mutate(region_name = dplyr::if_else(region_name == "New York and New Jersey, Puerto Rico, Virgin Islands", "NY & NJ, PR, VI", region_name))
 ```
 
 9. Add a region and region name columns to the `population` data frame.
 
 ```{r}
-# population <- 
+population <- population |> mutate(state_name = unlist(state_name, use.names = FALSE)) |> left_join(regions, by = "state_name")
 ```
 
 
@@ -123,7 +124,7 @@ url <- "https://github.com/datasciencelabs/2025/raw/refs/heads/main/data/regions
 
 ```{r}
 api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
-# cases_raw <- 
+cases_raw <- request(api) |> req_url_query(`$limit` = 50000) |> req_perform() |> resp_body_json(simplifyVector = TRUE) |> tibble::as_tibble()
 ```
 
 We see exactly 1,000 rows. We should be seeing over $52 \times 3$ rows per state.
@@ -132,20 +133,43 @@ We see exactly 1,000 rows. We should be seeing over $52 \times 3$ rows per state
 
 ```{r}
 api <- "https://data.cdc.gov/resource/pwn4-m3yp.json"
-# cases_raw <- 
+cases_raw <- request(api) |> req_url_query(`$limit` = 10000000000) |> req_perform() |> resp_body_json(simplifyVector = TRUE) |> tibble::as_tibble()
+cases <- cases_raw |> transmute(state, date = as.Date(substr(end_date, 1, 10)), cases = as.numeric(new_cases))
 ```
 
 
 12. For 2020 and 2021, make a time series plot of cases per 100,000 versus time for each state. Stratify the plot by region name. Make sure to label you graph appropriately. 
 
 ```{r}
-#cases |> 
+cases |>
+  filter(date >= as.Date("2020-01-01"), date <= as.Date("2021-12-31")) |>
+  mutate(year = as.integer(format(date, "%Y"))) |>
+  left_join(population |> filter(year %in% c(2020, 2021)) |> select(state, year, population, region_name), by = c("state", "year")) |>
+  filter(!is.na(region_name)) |>
+  mutate(cases_per_100k = 1e5 * cases / population) |>
+  ggplot(aes(x = date, y = cases_per_100k, group = state)) +
+  geom_line(alpha = 0.4, linewidth = 0.3) +
+  facet_wrap(~region_name) +
+  labs(title = "Daily COVID-19 cases per 100,000 by state (2020–2021)",
+       x = "Date", y = "Cases per 100,000") +
+  theme_minimal()
 ```
 
 13. The dates in the `cases` dataset are stored as character strings. Use the **lubridate** package to properly parse the `date` column, then create a summary table showing the total COVID-19 cases by month and year for 2020 and 2021. The table should have columns for year, month (as month name), and total cases across all states. Order by year and month. Use the **knitr** package and `kable()` function to display the results as a formatted table.
 
 ```{r}
-#cases |> 
+cases |>
+  mutate(date = lubridate::ymd(date)) |>
+  filter(lubridate::year(date) %in% c(2020, 2021)) |>
+  group_by(
+    year = lubridate::year(date),
+    month_num = lubridate::month(date),
+    month = lubridate::month(date, label = TRUE, abbr = FALSE)
+  ) |>
+  summarise(total_cases = sum(cases, na.rm = TRUE), .groups = "drop") |>
+  arrange(year, month_num) |>
+  select(year, month, total_cases) |>
+  knitr::kable()
 ```
 
 14. The following URL provides additional COVID-19 data from the CDC in JSON format:
@@ -158,11 +182,24 @@ Use **httr2** to download COVID-19 death data from this endpoint. Make sure to r
 
 
 ```{r}
-# Your code here
+deaths_raw <- request(deaths_url) |> req_url_query(`$select` = "state,end_date,covid_19_deaths", `$where` = "sex = 'All Sexes' AND age_group = 'All Ages'", `$limit` = 10000000000) |> req_perform() |> resp_body_json(simplifyVector = TRUE) |> tibble::as_tibble()
+deaths <- deaths_raw |> transmute(state_name = state, date = lubridate::ymd(substr(end_date, 1, 10)), deaths = as.numeric(covid_19_deaths)) |> mutate(state = dplyr::case_when(state_name == "District of Columbia" ~ "DC", state_name == "Puerto Rico" ~ "PR", TRUE ~ state.abb[match(state_name, state.name)])) |> select(state, date, deaths)
 ```
 
 15. Using the `deaths` dataset you created, make a bar plot showing the total COVID-19 deaths by state. Show only the top 10 states with the highest death counts. Order the bars from highest to lowest and use appropriate labels and title.
 
 ```{r}
-# Your code here
+deaths |>
+  filter(!is.na(state)) |>
+  group_by(state) |>
+  summarise(total_deaths = sum(deaths, na.rm = TRUE), .groups = "drop") |>
+  arrange(desc(total_deaths)) |>
+  slice_head(n = 10) |>
+  mutate(state = forcats::fct_reorder(state, total_deaths, .desc = TRUE)) |>
+  ggplot(aes(x = state, y = total_deaths)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 10 U.S. States by Total COVID-19 Deaths",
+       x = "State", y = "Total deaths") +
+  scale_y_continuous(labels = scales::comma)
 ```
