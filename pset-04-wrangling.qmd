@@ -118,11 +118,17 @@ points to a JSON file that lists the states in the 10 Public Health Service (PHS
 ```{r}
 #| message: false
 #| warning: false
-library(jsonlite)
-library(purrr)
-url <- "https://github.com/datasciencelabs/2025/raw/refs/heads/main/data/regions.json"
-regions_list <- jsonlite::read_json(url, simplifyVector = FALSE)
-regions <- purrr::map_df(regions_list, \(x) tibble(state_name = unlist(x$states), region = as.integer(x$region[[1]]), region_name = x$region_name)) |> mutate(region_name = dplyr::if_else(region_name == "New York and New Jersey, Puerto Rico, Virgin Islands", "NY & NJ, PR, VI", region_name))
+library(jsonlite); library(purrr); library(tibble)
+regs_raw <- jsonlite::fromJSON(url, simplifyVector = FALSE)
+regions <- purrr::imap_dfr(regs_raw, function(el, nm) {
+  rn <- if (!is.null(el$region_name)) el$region_name else if (!is.null(el$name)) el$name else nm
+  rg <- if (!is.null(el$region)) el$region else nm
+  tibble::tibble(
+    state_name = unlist(el$states, use.names = FALSE),
+    region = rg,
+    region_name = rn
+  )
+})
 ```
 
 9. Add a region and region name columns to the `population` data frame.
