@@ -145,6 +145,8 @@ cases_raw <- request(api) |> req_url_query(`$limit` = 50000) |> req_perform() |>
 
 We see exactly 1,000 rows. We should be seeing over $52 \times 3$ rows per state.
 
+**Comment:** No—this isn’t the full dataset. Only 1,000 rows are shown because the CDC’s default row limit prevents retrieving more.
+
 11. The reason you see exactly 1,000 rows is because CDC has a default limit. You can change this limit by adding `$limit=10000000000` to the request. Rewrite the previous request to ensure that you receive all the data. Then wrangle the resulting data frame to produce a data frame with columns `state`, `date` (should be the end date) and `cases`. Make sure the cases are numeric and the dates are in `Date` ISO-8601 format.
 
 ```{r}
