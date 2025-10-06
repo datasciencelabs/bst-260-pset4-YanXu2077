@@ -92,18 +92,15 @@ population <- as.data.frame(do.call(rbind, population_raw), stringsAsFactors = F
 7. As a check, make a barplot of states' 2020 and 2021 populations. Show the state names in the y-axis ordered by population size.  Hint: You will need to use `reorder` and use `facet_wrap`.
 
 ```{r}
-reorder_within <- function(x, by, within, fun=mean, sep="___") stats::reorder(paste(x, within, sep=sep), by, fun)
-scale_y_reordered <- function(sep="___") ggplot2::scale_y_discrete(labels=function(x) gsub(paste0(sep, ".*$"), "", x))
-
 population |>
-  mutate(state_name=reorder_within(state_name, population, year)) |>
-  ggplot(aes(y=state_name, x=population)) +
-  geom_col(orientation="y") +
-  facet_wrap(~year, ncol=1, scales="free_y") +
-  scale_y_reordered() +
-  scale_x_continuous(labels=function(x) format(x, big.mark=",")) +
-  labs(x="Population", y=NULL, title="State Population: 2020 vs 2021") +
-  theme(axis.text.y=element_text(size=3), panel.grid.major.y=element_blank())
+  mutate(state = reorder(state, population)) |>
+  ggplot(aes(x = state, y = population)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~year) +
+  labs(title = "States' population (2020 and 2021)", x = "State", y = "Population") +
+  theme(axis.text.y = element_text(size = 5))
+
 ```
 
 
@@ -161,17 +158,24 @@ cases <- cases_raw |> transmute(state, date = as.Date(substr(end_date, 1, 10)), 
 
 ```{r}
 cases |>
-  filter(date >= as.Date("2020-01-01"), date <= as.Date("2021-12-31")) |>
   mutate(year = as.integer(format(date, "%Y"))) |>
-  left_join(population |> filter(year %in% c(2020, 2021)) |> select(state, year, population, region_name), by = c("state", "year")) |>
-  filter(!is.na(region_name)) |>
-  mutate(cases_per_100k = 1e5 * cases / population) |>
-  ggplot(aes(x = date, y = cases_per_100k, group = state)) +
-  geom_line(alpha = 0.4, linewidth = 0.3) +
-  facet_wrap(~region_name) +
-  labs(title = "Daily COVID-19 cases per 100,000 by state (2020–2021)",
-       x = "Date", y = "Cases per 100,000") +
-  theme_minimal()
+  filter(year %in% c(2020, 2021)) |>
+  inner_join(population |> filter(year %in% c(2020, 2021)) |> select(state, year, population, region_name), by = c("state", "year")) |>
+  filter(!is.na(region_name), !is.na(population), population > 0) |>
+  mutate(cases_per_100k = (cases / population) * 100000) |>
+  ggplot(aes(x = date, y = cases_per_100k, group = state, color = state)) +
+  geom_line(alpha = 0.5, linewidth = 0.3, na.rm = TRUE) +
+  facet_wrap(~ region_name, labeller = label_wrap_gen(width = 30)) +
+  labs(title = "COVID-19 Cases per 100,000 (2020–2021)", x = "Date", y = "Cases per 100,000") +
+  scale_x_date(date_breaks = "3 months", date_labels = "%Y-%m", expand = c(0.01, 0)) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold", size = 6),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 6)) +
+  guides(color = guide_legend(nrow = 2, byrow = TRUE, override.aes = list(linewidth = 0.6, alpha = 0.8)))
 ```
 
 13. The dates in the `cases` dataset are stored as character strings. Use the **lubridate** package to properly parse the `date` column, then create a summary table showing the total COVID-19 cases by month and year for 2020 and 2021. The table should have columns for year, month (as month name), and total cases across all states. Order by year and month. Use the **knitr** package and `kable()` function to display the results as a formatted table.
